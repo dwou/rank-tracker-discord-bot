@@ -173,17 +173,7 @@ async def help(
       to_print = "A simple ping-pong test to see if the bot is online."
     case _:
       to_print = "Command not found."
-  if lobby_ID is None:
-    await itx.response.send_message(
-      "Error: you're already in a lobby.",
-      ephemeral=True
-    )
-    return
-  await itx.response.send_message(
-    f"<@{discord_account_ID}> just opened a ranked lobby!\n"
-      + this_player.pretty_print(),
-    ephemeral=False
-  )
+  await itx.response.send_message(to_print, ephemeral=True)
 
 
 @bot.tree.command(name='ranked', description='Opens a ranked session')
