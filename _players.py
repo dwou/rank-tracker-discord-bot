@@ -2,19 +2,19 @@ import os
 import re
 import json
 import time
-from basic_functions import debug_print
+import asyncio # to autoclose lobbies
+from basic_functions import *
+from LobbyManager import *
 
 # in case it has to be adjusted; functionality incomplete
-DEFAULT_ELO: float = 1000.0
+DEFAULT_ELO = 1000.0
+
 
 class PlayerManager():
   filename: str = None
   players: dict[str, Player] = dict()
   ID_map: dict[str, str] = dict() # curr -> prev
   default_elo: float = None
-  # identifier (1..) -> {"region":_, "platform":_,
-  #   "start_time":_, "last_interaction":_, "players":{}}
-  lobbies: dict[int, dict] = dict()
 
   @classmethod
   def initialize(cls, filename='players.json'):
@@ -79,7 +79,7 @@ class PlayerManager():
       debug_print(vars(player))
 
   @classmethod
-  def get_player(cls, ID: str) -> Player:
+  def _get_player(cls, ID: str) -> Player:
     """ Fetch a player by their ID; Create them if they don't exist;
         Resolve their ID if it's mapped. Error on a circular pointer chain """
     checked_IDs = set()
@@ -93,6 +93,7 @@ class PlayerManager():
       cls.players[ID] = Player(ID)
     return cls.players[ID]
 
+  ''' # Consider removing
   @classmethod
   def load_backup(cls) -> Player:
     """ Load the latest <filename>-<timestamp>.json from this directory
@@ -112,6 +113,7 @@ class PlayerManager():
       debug_print(f"Backup '{file_to_load}' loaded.")
     else:
       debug_print('There is no backup to load.')
+  '''
 
   @classmethod
   def _serialize(cls) -> Dict:
@@ -149,37 +151,12 @@ class PlayerManager():
 
     # Save data to file, if there is data
     data = cls._serialize()
-    #debug_print(data)
+    #debug_print("Dumping:", data)
     if data: # unnecessary check?
       with open(file_path, 'w') as f:
-        #debug_print('Dumping:', data)
         json.dump(data, f, indent=2)
     else:
       debug_print("There isn't enough data to write.")
-
-  @classmethod
-  def new_lobby(cls, player: Player, region: str, platform: str) -> int:
-    """ Create lobby if player not already in a lobby;
-        return None if player is in a lobby on this platform
-        else return lobby identifier """
-    # Check if they're already in a lobby
-    for identifier,lobby in cls.lobbies.items():
-      if player in lobby["players"] and lobby["platform"] == platform:
-        debug_print(f"Player {player.ID=} already has a lobby on this platform.")
-        return None
-    # make sure they have a record with this region+platform
-    player.get_record(region, platform)
-    for i in range(1,1000):
-      if i not in cls.lobbies:
-        now = time.time()
-        cls.lobbies[i] = {
-          "start_time": now,
-          "last_interaction": now,
-          "region": region,
-          "platform": platform,
-          "players": {player,}
-        }
-        return i
 
   @classmethod
   def remap_ID(cls, curr_ID: str, prev_ID: str) -> None:
@@ -214,6 +191,9 @@ class Player():
     #   move each (region,platform) into the values
     serialized_records = []
     for (region, platform),value in self.records.items():
+      # skip empty records
+      if value['matches_total'] == 0:
+        continue
       this_record = value
       this_record["region"] = region
       this_record["platform"] = platform
