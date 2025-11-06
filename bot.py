@@ -5,17 +5,28 @@
 #  (semi-Automatic) Discord user ranked account creation
 #
 # Not (yet) implemented:
-#  Automatic backups (or anything time- or delay-based)
+#  Automatic backups
 #  A working lobby and Elo system
 #  A customized ping system based on region/platform/Elo
 #  API rate limiter (but shouldn't be a problem)
 
+# TODO: remove backup hot loading - too complicated
 # TODO: "/lobby [query|list|close]"
 # Should 1) the lobby creator invite the other or 2) the other asks to join?
+
+# Use this invite link:
+# "https://discord.com/oauth2/authorize?client_id=1429136363151950008&permissions=2048&integration_type=0&scope=bot+applications.commands
+
+# Required roles (top to bottom):
+#   View Channels (maybe?)
+#   Send Messages and Create Posts
+# Needed later but not right now:
+#   Manage Roles (to ping elo ranges)
 
 from os import getenv
 import re
 from typing import Literal
+from functools import cache
 
 import discord
 from discord.ext import commands
@@ -24,6 +35,7 @@ from dotenv import load_dotenv
 
 #from helper_functions import *
 from _players import *
+from LobbyManager import *
 from basic_functions import *
 
 # TODO: test permissions
@@ -56,7 +68,10 @@ discord.member.Member
 def get_player(user: discord.member.Member) -> Player:
   """ Use this to interface with PlayerManager players, as it can update
       the Player's display name """
-  player: Player = PlayerManager.get_player(user.id)
+  # TODO: add a wrapper to cache
+  user_ID = str(user.id)
+  debug_print(f'Getting player with {user_ID=}')
+  player: Player = PlayerManager._get_player(user_ID)
   # Resolve and save display name if it's not defined
   if not player.display_name:
     player.display_name = user.global_name
@@ -175,17 +190,96 @@ async def help(
 @bot.tree.command(name='ranked', description='Opens a ranked session')
 async def ranked(
     itx: discord.Interaction,
-    region: Literal['NA','EU','Asia'],
+    region: Literal['NA', 'EU', 'Asia'],
     platform: Literal['Steam', 'PS'], # use "Steam", as "PS" ~= "PC" visually
   ) -> None:
   if platform == 'Steam':
     platform = 'PC'
+  discord_account = itx.user
   discord_account_ID = itx.user.id
-  this_player = get_player(itx.user)
-  lobby_ID = PlayerManager.new_lobby(this_player, region, platform)
-  if lobby_ID is None:
+  this_player = get_player(discord_account)
+  # Try making a new lobby for this player and proceed if a new lobby is made
+  try:
+    lobby_ID = await LobbyManager.new_lobby(this_player, region, platform)
+    debug_print(LobbyManager.lobbies[lobby_ID])
+  except ValueError as e:
+    debug_print(e.args)
     await itx.response.send_message(
-      "Error: you're already in a lobby.",
+      "ERROR: you're already in a lobby.",
+      ephemeral=True
+    )
+    return
+  alert = "\U0001f6a8"
+  await itx.response.send_message(
+    f"{alert} <@{discord_account_ID}> just opened a ranked lobby {alert} _don't forget to ping the role to notify people_\n\n"
+      + this_player.get_summary(),
+    ephemeral=False
+  )
+
+
+@bot.tree.command(name='join', description='Join a ranked lobby')
+async def join(
+    itx: discord.Interaction,
+    at_user: str,
+  ) -> None:
+  """ The caller tries to join the lobby of `at_user` """
+  #joiner_account_ID = itx.user.id
+  joiner_player = get_player(itx.user)
+  # Try parsing the host ID and resolving the host account
+  try:
+    debug_print(f"{at_user=}")
+    host_account_ID = re.match(r"<@(\d+)>", at_user).group(1)
+    debug_print(f"{host_account_ID=}")
+    host_user = await bot.fetch_user(host_account_ID)
+    host_player = get_player(host_user)
+  except Exception as e:
+    debug_print(e.args)
+    text = f"Error parsing `at_user` (did you type a valid \"@user\"?)"
+    await itx.response.send_message(text, ephemeral=True)
+    return
+  # Try finding and joining the lobby
+  try:
+    print(f'{host_player=}')
+    lobby_ID = LobbyManager.find_lobby(host_player)
+    LobbyManager.join_lobby(joiner_player, lobby_ID)
+  except Exception as e:
+    await itx.response.send_message(f"ERROR: {e.args}", ephemeral=True)
+    return
+  debug_print("Lobby joined successfully.")
+  await itx.response.send_message(f"{joiner_player.display_name} joined {host_player.display_name} lobby.", e.args)
+
+
+@bot.tree.command(name='result', description='Report the result of a match')
+async def result(
+    itx: discord.Interaction,
+    result: Literal['I won', 'I lost', 'Draw'],
+    platform: Literal['Steam', 'PS'], # use "Steam", as "PS" ~= "PC" visually
+  ) -> None:
+  if platform == 'Steam':
+    platform = 'PC'
+  discord_account = itx.user
+  #discord_account_ID = itx.user.id
+  this_player = get_player(discord_account_ID)
+  lobby_ID = LobbyManager.find_lobby(this_player)
+  lobby = LobbyManager.lobbies[lobby_ID]
+  # Fetch the opponent Player; exit if they aren't found
+  opponent = next((player for player in lobby['players'] if player != this_player), None)
+  if opponent is None:
+    text = "You're not in a lobby with anyone else."
+    itx.response.send_message(text, ephemeral=True)
+    return
+
+  try:
+    if result == "I won":
+      winner = this_player
+    else:
+      winner = opponent
+    LobbyManager.report_match_result(winner, draw=(result=="Draw"))
+
+  except ValueError as e:
+    debug_print(e.args)
+    await itx.response.send_message(
+      "ERROR: you're already in a lobby.",
       ephemeral=True
     )
     return
