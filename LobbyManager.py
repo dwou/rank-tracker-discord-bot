@@ -1,10 +1,11 @@
-
 import time
 import asyncio
 from basic_functions import *
 
 class LobbyManager():
   elo_function = create_elo_function(K=20, diff=100, xtimes=2)
+  keepalive_duration = 30 * 60 # seconds; initial time to keep a lobby alive for
+  refresh_duration = 3 * 60 # seconds; time to keep a lobby alive without activity
   lobbies: dict[int, dict] = dict() # lobby ID -> {}
   # `lobbies`: key identifier(1,2,3,...) -> Dict:
   #   "ID": int,
@@ -13,8 +14,6 @@ class LobbyManager():
   #   "players": set[Player],
   #   "records": dict[player, dict[W/L/D -> int]]
   #   "invited_players": set[Player]
-  keepalive_duration = 30 * 60 # seconds; initial time to keep a lobby alive for
-  refresh_duration = 3 * 60 # seconds; time to keep a lobby alive without activity
 
   @classmethod
   async def __lobby_autocloser(cls, lobby: dict) -> None:
@@ -120,7 +119,7 @@ class LobbyManager():
     # Add the player and update the lobby
     lobby['players'].add(joiner)
     lobby['records'][joiner] = {'W': 0, 'L': 0, 'D': 0}
-    update_lobby(lobby)
+    cls.update_lobby(lobby)
 
   @classmethod
   def leave_lobby(cls, player: Player) -> None:
@@ -156,6 +155,6 @@ class LobbyManager():
     # Update the Elos
     p1_elo = p1.get_elo(region, platform)
     p2_elo = p2.get_elo(region, platform)
-    result = cls.elo_function(p1_elo, p2_result)
+    result = cls.elo_function(p1_elo, p2_elo)
     p1[(region, platform)] += result['p1_gain']
     p2[(region, platform)] += result['p2_gain']
