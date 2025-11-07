@@ -24,7 +24,7 @@ class PlayerManager():
 
   @classmethod
   def _load_data(cls, filename=None) -> None:
-    """ Loads players,ID_map from a file, or create a new file and vars.
+    """ Load players,ID_map from a file, or create a new file and vars.
         Adjust important elo based on DEFAULT_ELO.
         Assume all input data is valid. """
     ## Load the file if it exists
@@ -74,14 +74,15 @@ class PlayerManager():
     cls.default_elo = DEFAULT_ELO # after adjusting loaded values
 
   @classmethod
-  def print_players(cls) -> None:
+  def debug_print_players(cls) -> None:
+    """ Print all players, for debugging. """
     for player in cls.players.values():
       debug_print(vars(player))
 
   @classmethod
   def _get_player(cls, ID: str) -> Player:
     """ Fetch a player by their ID; Create them if they don't exist;
-        Resolve their ID if it's mapped. Error on a circular pointer chain """
+        Resolve their ID if it's mapped. Error on a circular pointer chain. """
     checked_IDs = set()
     while ID in cls.ID_map:
       if ID in checked_IDs:
@@ -92,28 +93,6 @@ class PlayerManager():
       debug_print(f"Making a new player with {ID=}")
       cls.players[ID] = Player(ID)
     return cls.players[ID]
-
-  ''' # Consider removing
-  @classmethod
-  def load_backup(cls) -> Player:
-    """ Load the latest <filename>-<timestamp>.json from this directory
-        if any exist """
-    this_dir = os.path.dirname(os.path.abspath(__file__))
-    latest_time: int = 0
-    # Scan the directory
-    for filename in os.listdir(this_dir):
-      if match := re.match(fr'{cls.filename}-(\d+).json', filename):
-        Time = int(match.group(1))
-        if Time > latest_time:
-          latest_time = Time
-    if latest_time > 0:
-      file_to_load = f'{cls.filename}-{latest_time}.json'
-      #cls.players = cls._load_players(filename=file_to_load)
-      cls._load_data(filename=file_to_load)
-      debug_print(f"Backup '{file_to_load}' loaded.")
-    else:
-      debug_print('There is no backup to load.')
-  '''
 
   @classmethod
   def _serialize(cls) -> Dict:
@@ -126,7 +105,6 @@ class PlayerManager():
       "default_elo": cls.default_elo,
       "players": [player._serialize() for player in cls.players.values()],
     }
-    #debug_print(data, type(data))
     return data
 
   @classmethod
@@ -176,7 +154,7 @@ class Player():
     self.display_name = display_name
 
   def get_record(self, region, platform) -> dict:
-    """ Return record, create one if it doesn't exist """
+    """ Fetch and return record. Create one if it doesn't exist. """
     couple = (region, platform)
     if couple not in self.records:
       self.records[couple] = {"matches_total": 0, "elo": DEFAULT_ELO}
@@ -186,7 +164,7 @@ class Player():
     return self.get_record(region, platform)['elo']
 
   def _serialize(self) -> Dict:
-    """ Create serialized representation of this object, for json """
+    """ Create serialized representation of this object, for saving to json. """
     # tuple cannot be used as a key in json;
     #   move each (region,platform) into the values
     serialized_records = []
@@ -209,17 +187,16 @@ class Player():
     return data
 
   def get_summary(self) -> None:
-    """ Returns a string summary of this Player """
-    chart = "\U0001f4ca"
-    output = f"{chart} {self.display_name} has the following records:\n"
+    """ Return a string summary of this Player. """
+    output = f"-# {self.display_name} has the following records:\n"
     any_found = False
     for (region,platform),record in self.records.items():
       if record['matches_total']:
         # TODO: sort
-        output += (f"{region}-{platform}: {int(record['elo'])} elo from {record['matches_total']} matches\n")
+        output += (f"-# * {region}-{platform}: {int(record['elo'])} elo from {record['matches_total']} matches\n")
         any_found = True
     if not any_found:
-      output += "None, they're new!\n"
+      output += "-# * None, they're new!\n"
     if self.banned:
       output += "and they're BANNED\n"
     output = output.strip()
