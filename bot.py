@@ -141,7 +141,6 @@ async def save(
     itx: discord.Interaction,
     backup: bool,
   ) -> None:
-  itx.user.guild_permissions()
   PlayerManager.save_to_file(backup=backup)
   debug_print('Saved PlayerManager.')
   await itx.response.send_message(f'Saved.', ephemeral=True)
@@ -345,11 +344,6 @@ async def ban_ranked(
 @bot.command(name='ping')
 async def ping(ctx: discord.ext.commands.context.Context) -> None:
   await ctx.send("Pong!")
-
-# ping pong test
-@bot.command(name='debug')
-async def debug(ctx: discord.ext.commands.context.Context) -> None:
-  PlayerManager.debug_print_players()
 
 
 ###################
