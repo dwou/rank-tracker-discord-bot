@@ -1,26 +1,18 @@
 # Use this invite link (it displays permissions before you accept):
 #  "https://discord.com/oauth2/authorize?client_id=1429136363151950008&permissions=2048&integration_type=0&scope=bot+applications.commands
-# Scopes: applications.commands; bot
-# Required roles (top to bottom):
-#   View Channels (maybe?)
-#   Send Messages and Create Posts
-# Needed later but not right now:
-#   Manage Roles (to ping elo ranges)
 
 # Implemented:
-#  Complete data saving(+backup +autosaving) and loading system
-#  (semi-Automatic) Discord user ranked account creation
+#   Seemingly complete lobby and Elo system
+#   Complete data saving(+backup +autosaving) and loading system
+#   (semi-Automatic) Discord user ranked account creation
 #
 # Not (yet) implemented:
 #   A customized ping system based on region/platform/Elo (not useful for now)
 #   API rate limiter (but shouldn't be a problem)
 
-# TODO: test EVERYTHING
+# TODO: test on Windows
+# TODO: process match log to re-compute Elo upon startup (including using "undo")
 # TODO: figure out how to deploy/update
-# TODO: "/lobby [kick|list|query]"
-# TODO: test permissions
-# TODO: consider using /match instead of /ranked, and give the option of unranked
-# TODO: add match logging (easy) and "undo" (less easy)
 
 from os import getenv
 import re
@@ -38,8 +30,9 @@ from LobbyManager import *
 from basic_functions import *
 
 AUTOSAVE = True
-AUTOSAVE_BACKUPS = True # whether to back up previous data while autosaving
-AUTOSAVE_PERIOD = 30 * 60 # (seconds) autosave periodically
+AUTOSAVE_BACKUPS = False # whether to back up previous data while autosaving
+AUTOSAVE_PERIOD = 120 #1 * 60 # (seconds) autosave periodically
+report_str = "Report bugs to /DWouu." # string to append to certain messages
 
 # NOTES: Types & naming conventions, Functions, Data
 '''
@@ -99,7 +92,7 @@ async def on_ready() -> None:
 
 @bot.event
 async def on_message(msg: discord.message.Message) -> None:
-  """ Handle new messages """
+  """ Handle new messages. """
   # Drop DMs
   if not msg.guild:
     return
@@ -122,7 +115,7 @@ async def on_message(msg: discord.message.Message) -> None:
 
 @bot.event
 async def on_interaction(itx: discord.Interaction):
-  """ Log incoming slash commands """
+  """ Log incoming slash commands. """
   if itx.type == discord.InteractionType.application_command:
     command = itx.data['name']
     # check if there are arguments passed
@@ -142,12 +135,13 @@ async def on_interaction(itx: discord.Interaction):
 ##################
 
 
-@commands.has_permissions(administrator=True)
+@app_commands.default_permissions(administrator=True)
 @bot.tree.command(name='save', description='Saves player data')
 async def save(
     itx: discord.Interaction,
-    backup: bool
+    backup: bool,
   ) -> None:
+  itx.user.guild_permissions()
   PlayerManager.save_to_file(backup=backup)
   debug_print('Saved PlayerManager.')
   await itx.response.send_message(f'Saved.', ephemeral=True)
@@ -166,29 +160,42 @@ async def playerdata(
 @bot.tree.command(name='help', description="Shows a description of a given command")
 async def help(
     itx: discord.Interaction,
-    command: Literal['/ranked', '/playerdata', '/save', '!ping'],
   ) -> None:
-  # TODO: update
-  match command:
-    case '/ranked':
-      to_print = "Open a 1v1 ranked lobby given region and platform."\
-        "\nLobbies must be updated periodically using !{win,lose,draw} <lobby number>"
-    case '/playerdata':
-      to_print = "Privately display a overview of a user's ranked profile, using:"\
-        "\"/playerdata @user\""
-    case '/save':
-      to_print = "[admin-only] Manually save the PlayerManager data."
-    case '!ping':
-      to_print = "A simple ping-pong test to see if the bot is online."
-    case _: # This branch should be unreachable
-      to_print = "Command not found."
-  await itx.response.send_message(to_print, ephemeral=True)
+  text = """-# Note: "lobby" here refers to the object that this Discord bot keeps track of internally.
+```
+/ranked <region> <platform> <ping_users={True|False}>
+        Open a ranked lobby and optionally ping users in the region/platform.
+        The lobby must be periodically updated using /result.
+
+/invite <user>
+        Allow a player to join your lobby.
+
+/join
+        Join a lobby (you need to be invited first).
+
+/leave
+        Leave a lobby.
+
+/result {I won|I lost|Draw|Undo}
+        Report the result of a match (must be in a lobby with the other player).
+        Note: "Undo" doesn't take effect until after the bot is restarted.
+
+/playerdata <user>
+        Display the ranked data of a user.
+
+/save <backup={True|False}>
+        [admin-only] Manually save the PlayerManager data.
+
+!ping
+        A simple ping-ping test to check if the bot is online.```
+"""
+  await itx.response.send_message(text, ephemeral=True)
 
 
 @bot.tree.command(name='ranked', description='Opens a ranked session')
 async def ranked(
     itx: discord.Interaction,
-    region: Literal['NA', 'EU', 'Asia'],
+    region: Literal['NA', 'EU', 'Asia', 'SA', 'MEA'],
     platform: Literal['Steam', 'PS'], # use "Steam", as "PS" ~= "PC" visually
     ping_users: Literal['Ping users', "Don't ping users"],
   ) -> None:
@@ -219,13 +226,14 @@ async def ranked(
   debug_print(header)
   await itx.response.send_message(
       header
-      + this_player.get_summary(),
+      + this_player.get_summary()
+      + f"\n_-# {report_str}_",
     ephemeral=False
   )
-  await itx.followup.send("Don't forget to /invite people.", ephemeral=True)
+  await itx.followup.send("Don't forget to `/invite` people.", ephemeral=True)
 
 
-@bot.tree.command(name='invite', description='Opens a ranked session')
+@bot.tree.command(name='invite', description='Invites another user to a ranked session')
 async def invite(
     itx: discord.Interaction,
     invited_user: discord.User,
@@ -236,7 +244,7 @@ async def invite(
     invitee_player = get_player(invited_user)
     LobbyManager.invite_to_lobby(host_player, invitee_player)
     text = f"<@{host.id}> invited <@{invited_user.id}>"\
-      "\n-# use /join to join their lobby"
+      "\n-# use `/join` to join their lobby"
     await itx.response.send_message(text)
   except Exception as e:
     await itx.response.send_message(f"ERROR: {e.args}")
@@ -249,26 +257,18 @@ async def join(
   ) -> None:
   """ The caller tries to join the lobby of `at_user` """
   joiner_player = get_player(itx.user)
-  # Try parsing the host ID and resolving the host account
-  try:
-    #host_account_ID = re.match(r"<@(\d+)>", at_user).group(1)
-    #host_user = await bot.fetch_user(host_account_ID)
-    host_player = get_player(host_user)
-  except Exception as e:
-    debug_print(e.args)
-    text = f"Error parsing `at_user` (did you type a valid \"@user\"?)"
-    await itx.response.send_message(text, ephemeral=True)
-    return
+  host_player = get_player(host_user)
   # Try finding and joining the lobby
   try:
     LobbyManager.join_lobby(host_player, joiner_player)
   except Exception as e:
     await itx.response.send_message(f"ERROR: {e.args}", ephemeral=True)
-    return
-  debug_print("Lobby joined successfully.")
-  await itx.response.send_message(
-    f"{joiner_player.display_name} joined {host_player.display_name}'s lobby"
-  )
+  else:
+    debug_print("Lobby joined successfully.")
+    await itx.response.send_message(
+      f"{joiner_player.display_name} joined {host_player.display_name}'s lobby"\
+        "\n-# Use `/result` to report the result of each match."
+    )
 
 
 @bot.tree.command(name='leave', description="Leave the lobby you're in")
@@ -282,17 +282,19 @@ async def leave(
     LobbyManager.leave_lobby(player)
   except Exception as e:
     await itx.response.send_message(f"ERROR: {e.args}", ephemeral=True)
-    return
-  debug_print("Lobby exited successfully.")
-  await itx.response.send_message(f"{player.display_name} left a lobby")
+  else:
+    debug_print("Lobby exited successfully.")
+    await itx.response.send_message(f"{player.display_name} left a lobby")
 
 
 @bot.tree.command(name='result', description='Report the result of a match')
 async def result(
     itx: discord.Interaction,
-    result: Literal['I won', 'I lost', 'Draw'],
+    result: Literal['I won', 'I lost', 'Draw', 'Undo'],
   ) -> None:
-  """ A player reports the result of their match. """
+  """ A player reports the result of their match.
+      If result == "Undo" then only update the match log, otherwise try to
+      update each player's Elo. """
   discord_account = itx.user
   this_player = get_player(discord_account)
   try:
@@ -305,12 +307,33 @@ async def result(
     # Determine the winner and report the result
     if result == "I won":
       winner = this_player
+      loser = opponent
     else:
       winner = opponent
-    LobbyManager.report_match_result(winner, draw=(result=="Draw"))
+      loser = this_player
+    # Handle Undo
+    if result == 'Undo':
+      LobbyManager.update_match_log(lobby['region'], lobby['platform'], winner, loser, undo=True)
+      result_text = "Noted undo (bot has to be reloaded for it to take effect)."
+    else:
+      result_text = LobbyManager.report_match_result(winner, draw=(result=="Draw"))
+    await itx.response.send_message(result_text, ephemeral=False)
   except Exception as e:
     await itx.response.send_message(f"ERROR: {e.args}", ephemeral=True)
     return
+
+
+@bot.tree.command(name='ban_ranked', description='Ban a player from the ranked bot')
+async def ban_ranked(
+    itx: discord.Interaction,
+    user: discord.User,
+  ) -> None:
+  """ Ban a user from using the ranked bot. """
+  this_player = get_player(user)
+  this_player.banned = True
+  await itx.response.send_message(
+    f"{this_player.display_name} got banned lmao", ephemeral=True
+  )
 
 
 ##############
@@ -322,6 +345,11 @@ async def result(
 @bot.command(name='ping')
 async def ping(ctx: discord.ext.commands.context.Context) -> None:
   await ctx.send("Pong!")
+
+# ping pong test
+@bot.command(name='debug')
+async def debug(ctx: discord.ext.commands.context.Context) -> None:
+  PlayerManager.debug_print_players()
 
 
 ###################
@@ -427,6 +455,7 @@ async def bot_fetch_user(user_ID: int) -> discord.User: # supposed to be int? tr
   print("Fetching user:", user_ID)
   user = await bot.fetch_user(user_ID)
   return user
+
 
 if __name__ == "__main__":
   asyncio.run(main())
