@@ -204,3 +204,14 @@ class LobbyManager():
           time.strftime("%s"), region, platform, winner.ID, loser.ID, 'undo' if undo else str(draw)
         ]) + '\n'
       )
+
+  @classmethod
+  def list_lobbies(cls) -> str:
+    """ List each lobby and the players in each. """
+    output = ""
+    for lobby in cls.lobbies.values():
+      output += f'#{lobby['ID']}: '
+      for player in lobby['players']:
+        output += f'{player.display_name}, '
+      output += '\n'
+    return output
