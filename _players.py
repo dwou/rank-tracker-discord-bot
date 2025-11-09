@@ -13,30 +13,26 @@ DEFAULT_ELO = 1000.0 # only used for new Players
 class PlayerManager():
   filename: str = None
   players: dict[str, Player] = dict()
-  ID_map: dict[str, str] = dict() # curr -> prev
+  ID_map: dict[str, str] = dict() # curr -> prev; no Discord interface yet
 
   @classmethod
-  def initialize(cls, filename='players.json'):
+  def initialize(cls, filename: str = 'data.json'):
     cls.filename = filename
-    cls._load_data(filename=filename)
+    cls._load_data()
 
   @classmethod
-  def _load_data(cls, filename=None) -> None:
+  def _load_data(cls) -> None:
     """ Load players,ID_map from a file, or create a new file and vars.
         Assume all input data is valid. """
     # Load the file if it exists
-    if filename is None:
-      filename = cls.filename
     this_dir = os.path.dirname(os.path.abspath(__file__))
-    file_path = os.path.join(this_dir, filename)
+    file_path = os.path.join(this_dir, cls.filename)
     if not os.path.isfile(file_path):
       debug_print("No input file found.")
-      # use default (empty) values for the variables
+      # use default values for the variables
       return
     with open(file_path, "r") as f:
-      debug_print('Loading data...')
       json_data = json.load(f)
-      debug_print(f"Loaded data: {json_data}")
 
     # Unpack the players
     for p in json_data['players']:
@@ -97,16 +93,12 @@ class PlayerManager():
 
   @classmethod
   def save_to_file(cls, backup=False) -> None:
-    # Do nothing if there's no data to save
-    if not cls.players:
-      debug_print("There's nothing to save")
-      return
     this_dir = os.path.dirname(os.path.abspath(__file__))
     file_path = os.path.join(this_dir, cls.filename)
 
     # Back up (rename instead of overwrite) the old data if applicable
     if backup:
-      # rename the current <filename>.json to <filename>-<timestamp>.json
+      # Rename the current <filename>.json to <filename>-<timestamp>.json
       old_basename = cls.filename[:-5] # strip ".json"
       unix_time = time.strftime("%s")
       backup_name = os.path.join(this_dir, f'{old_basename}-{unix_time}.json')
@@ -115,7 +107,7 @@ class PlayerManager():
       else:
         debug_print("There's nothing to back up.")
 
-    # Save data to file, if there is data
+    # Save data to file
     data = cls._serialize()
     with open(file_path, 'w') as f:
       json.dump(data, f, indent=2)
@@ -136,10 +128,14 @@ class PlayerManager():
 
 
 class Player():
-  # Values saved = banned: bool, ID: str, records: dict
   # self.records: map[tuple,dict] =
   #   ('NA','PC'): ("matches_total":int, "elo":float), ...
-  def __init__(self, ID, banned=False, display_name="", records: dict()=None):
+  def __init__(self,
+      ID: str,
+      banned: bool = False,
+      display_name: str = "",
+      records: dict() = None # set to None, because using a mutable default arg is problematic
+    ) -> None:
     self.ID = ID
     self.banned = banned
     self.display_name = display_name
@@ -178,7 +174,7 @@ class Player():
       "records": serialized_records,
       "banned": self.banned,
     }
-    debug_print("Serialized player data:", data)
+    #debug_print("Serialized player data:", data)
     return data
 
   def get_summary(self) -> None:
@@ -188,7 +184,7 @@ class Player():
     for (region,platform),record in self.records.items():
       if record['matches_total']:
         # TODO: sort
-        output += (f"-# * {region}-{platform}: {int(record['elo'])} elo from {record['matches_total']} matches\n")
+        output += (f"* {region}-{platform}: **{int(record['elo'])}** Elo, {record['matches_total']} matches\n")
         any_found = True
     if not any_found:
       output += "-# * None, they're new!\n"
