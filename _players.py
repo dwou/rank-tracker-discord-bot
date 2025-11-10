@@ -5,7 +5,7 @@ import time
 import asyncio # to autoclose lobbies
 from copy import copy
 from basic_functions import *
-from LobbyManager import *
+#from LobbyManager import *
 
 DEFAULT_ELO = 1000.0 # only used for new Players
 
