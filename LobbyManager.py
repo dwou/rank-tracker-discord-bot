@@ -1,5 +1,6 @@
 import time
 import asyncio
+from _players import *
 from basic_functions import *
 
 class LobbyManager():
