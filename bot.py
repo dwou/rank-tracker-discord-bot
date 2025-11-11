@@ -14,7 +14,6 @@
 from os import getenv
 import re
 from typing import Literal
-from functools import cache
 import asyncio
 
 import discord
@@ -194,7 +193,7 @@ async def help(
 @bot.tree.command(name='ranked', description='Opens a ranked session')
 async def ranked(
     itx: discord.Interaction,
-    region: Literal['NA', 'EU', 'Asia', 'SA', 'MEA'],
+    region: Literal['NA', 'EU', 'ASIA', 'SA', 'MEA'],
     platform: Literal['Steam', 'PS'], # use "Steam", as "PS" ~= "PC" visually
     ping_users: Literal['Ping users', "Don't ping users"],
   ) -> None:
