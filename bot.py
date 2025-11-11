@@ -181,6 +181,9 @@ async def help(
 /playerdata <user>
         Display the ranked data of a user.
 
+/leaderboard <region> <platform>
+        Display the ranked leaderboard for a region/platform.
+
 /save <backup={True|False}>
         [admin-only] Manually save the PlayerManager data.
 
@@ -341,6 +344,40 @@ async def list_lobbies(itx: discord.Interaction) -> None:
     await itx.response.send_message(text, ephemeral=True)
   else:
     await itx.response.send_message("No lobbies.", ephemeral=True)
+
+
+@bot.tree.command(name='leaderboard', description='Display a leaderboard for the region/platform')
+async def leaderboard(
+    itx: discord.Interaction,
+    region: Literal['NA', 'EU', 'ASIA', 'SA', 'MEA'],
+    platform: Literal['Steam', 'PS'], # use "Steam", as "PS" ~= "PC" visually
+  ) -> None:
+  """ Display a leaderboard for the region/platform. """
+  if platform == 'Steam':
+    platform = 'PC'
+  try:
+    players = [player for player in PlayerManager.players.values()
+              if (region,platform) in player.records
+              and not player.banned]
+    if players:
+      sort_by_elo = lambda player: player.records[(region,platform)]['elo']
+      players.sort(key=sort_by_elo, reverse=True)
+      lines = []
+      for player in players:
+        record = player.records[(region,platform)]
+        elo = record['elo']
+        elo_prefix = '~' if record['matches_total'] < 30 else ' '
+        lines.append(f"{elo_prefix}{int(elo):>4} │ {player.display_name}")
+      header = "``` Elo  │ Player\n"\
+                  "──────┼─────────────────\n"
+      output = header + '\n'.join(lines) + "```"
+      await itx.response.send_message(output, ephemeral=True)
+    else:
+      await itx.response.send_message(
+        'Nobody has played in this region/platform.', ephemeral=True
+      )
+  except Exception as e:
+    debug_print(e.args)
 
 
 ##############
