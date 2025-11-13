@@ -3,6 +3,7 @@ import asyncio
 from _players import *
 from basic_functions import *
 
+
 class LobbyManager():
   elo_function = create_elo_function(K=20, diff=100, xtimes=2)
   keepalive_duration = 30 * 60 # seconds; initial time to keep a lobby alive for
@@ -13,7 +14,7 @@ class LobbyManager():
   #   "region":_, "platform":_,
   #   "start_time":_, "last_interaction":_,
   #   "players": set[Player],
-  #   "records": dict[player, dict[W/L/D/matches_total -> int]]
+  #   "records": dict[Player, dict[W/L/D/matches_total -> int]]
   #   "invited_players": set[Player]
 
   @classmethod
@@ -202,7 +203,7 @@ class LobbyManager():
     with open(file_path, 'a+') as f:
       f.write( # timestamp,region,platform,winner_ID,loser_ID,{draw "True", "False", "undo"}
         ','.join([
-          time.strftime("%s"), region, platform, winner.ID, loser.ID, 'undo' if undo else str(draw)
+          str(int(time.time())), region, platform, winner.ID, loser.ID, 'undo' if undo else str(draw)
         ]) + '\n'
       )
 
@@ -211,8 +212,7 @@ class LobbyManager():
     """ List each lobby and the players in each. """
     output = ""
     for lobby in cls.lobbies.values():
-      output += f'#{lobby['ID']}: '
-      for player in lobby['players']:
-        output += f'{player.display_name}, '
+      output += f'#{lobby['ID']} ({lobby['region']}-{lobby['platform']}): '
+      output += ', '.join([player.display_name for player in lobby['players']])
       output += '\n'
     return output
