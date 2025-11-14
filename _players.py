@@ -1,22 +1,25 @@
+""" Module defining classes relating to Players (not lobbies). """
+
 import os
-import re
 import json
 import time
 import asyncio # to autoclose lobbies
 from copy import copy
-from basic_functions import *
+from basic_functions import debug_print
 
 DEFAULT_ELO = 1000.0 # only used for new Players
 
 
 class PlayerManager():
+  """ a singleton class to manage Players, including saving and loading. """
   filename: str = None
-  players: dict[str, Player] = dict()
-  ID_map: dict[str, str] = dict() # curr -> prev; no Discord interface yet
+  players: dict[str, Player] = {}
+  ID_map: dict[str, str] = {} # curr -> prev; no Discord interface yet
   should_save: bool = False # dirty bit to track changes
 
   @classmethod
   def initialize(cls, filename: str = 'data.json'):
+    """ Initialize the class. """
     cls.filename = filename
     cls._load_data()
 
@@ -31,7 +34,7 @@ class PlayerManager():
       debug_print("No input file found.")
       # use default values for the variables
       return
-    with open(file_path, "r") as f:
+    with open(file_path, "r", encoding='u8') as f:
       json_data = json.load(f)
 
     # Unpack the players
@@ -39,23 +42,23 @@ class PlayerManager():
       debug_print('Reading player:', p)
       ID = p['ID']
       # Deserialize the records
-      records = dict()
+      records = {}
       for r in p['records']:
         # Move the region and platform from values to keys
         region = r['region']
         platform = r['platform']
         del r['region'], r['platform']
-        records[(region, platform)] = r # TODO: make sure it copies
+        records[(region, platform)] = r
       del p['records'] # use the created `records`, not the loaded one
       cls.players[ID] = Player(**p, records=records)
 
     # Unpack the ID_map
-    for im in json_data['ID_map']:
+    for im in json_data['id_map']:
       debug_print('Reading (IDs):', im)
-      ref_ID = im['ref_ID']
-      orig_ID = im['orig_ID']
-      debug_print(f'{ref_ID} -> {orig_ID}')
-      cls.ID_map[ref_ID] = orig_ID
+      ref_id = im['ref_id']
+      orig_id = im['orig_id']
+      debug_print(f'{ref_id} -> {orig_id}')
+      cls.ID_map[ref_id] = orig_id
 
   @classmethod
   def debug_print_players(cls) -> None:
@@ -64,7 +67,7 @@ class PlayerManager():
       debug_print(vars(player))
 
   @classmethod
-  def _get_player(cls, ID: str) -> Player:
+  def get_player(cls, ID: str) -> Player:
     """ Fetch a player by their ID; Create them if they don't exist;
         Resolve their ID if it's mapped. Error on a circular pointer chain. """
     checked_IDs = set()
@@ -80,7 +83,7 @@ class PlayerManager():
     return cls.players[ID]
 
   @classmethod
-  def _serialize(cls) -> Dict:
+  def _serialize(cls) -> dict:
     """ Create serialized representation of this object, for json. """
     epoch_time = int(time.time())
     readable_time = time.strftime("%Y-%m-%d at %H %M")
@@ -88,12 +91,13 @@ class PlayerManager():
       "timestamp": [epoch_time, readable_time],
       "ID_map": cls.ID_map,
       "default_elo": DEFAULT_ELO,
-      "players": [player._serialize() for player in cls.players.values()],
+      "players": [player.serialize() for player in cls.players.values()],
     }
     return data
 
   @classmethod
   def save_to_file(cls, backup=False) -> None:
+    """ Save player data to a file, optionally backing up the old file. """
     this_dir = os.path.dirname(os.path.abspath(__file__))
     file_path = os.path.join(this_dir, cls.filename)
     unix_time = int(time.time())
@@ -105,11 +109,11 @@ class PlayerManager():
       if cls.should_save:
         cls.should_save = False
         debug_print(msg)
-        with open(file_path, 'w') as f:
+        with open(file_path, 'w', encoding='u8') as f:
           json.dump(data, f, indent=2)
       else:
         debug_print("Not saving: nothing has changed.")
-        
+
     # Don't check `backup` if `file_path` not present
     if not os.path.isfile(file_path):
       save("Saving without backing up...")
@@ -123,14 +127,15 @@ class PlayerManager():
     save()
 
   @classmethod
-  def remap_ID(cls, curr_ID: str, prev_ID: str) -> None:
+  def remap_ID(cls, curr_id: str, prev_id: str) -> None:
     """ Remap one Discord ID to another (in case they lose their account etc).
         Should be restricted to admin-only. """
     cls.should_save = True
-    cls.ID_map[curr_ID] = prev_ID
+    cls.ID_map[curr_id] = prev_id
 
   @classmethod
   async def autosave(cls, period: float, backup: bool) -> None:
+    """ Start the autosaving process. """
     # Assume autosaving is enabled if this method is called
     start_time = time.time()
     while True:
@@ -139,13 +144,14 @@ class PlayerManager():
 
 
 class Player():
+  """ Manage a single player. """
   # self.records: map[tuple,dict] =
-  #   ('NA','PC'): ("matches_total":int, "elo":float), ...
+  #   { ('NA','PC'): {"matches_total":int, "elo":float}, ... }
   def __init__(self,
       ID: str,
       banned: bool = False,
       display_name: str = "",
-      records: dict() = None # set to None, because using a mutable default arg is problematic
+      records: dict = None # set to None, because using a mutable default arg is problematic
     ) -> None:
     self.ID = ID
     self.banned = banned
@@ -153,7 +159,7 @@ class Player():
     if records:
       self.records = records
     else:
-      self.records = dict()
+      self.records = {}
 
   def get_record(self, region, platform) -> dict:
     """ Fetch and return record. Create one if it doesn't exist. """
@@ -167,9 +173,10 @@ class Player():
     return self.records[couple]
 
   def get_elo(self, region, platform) -> float:
+    """ Fetch a Player's elo. """
     return self.get_record(region, platform)['elo']
 
-  def _serialize(self) -> Dict:
+  def serialize(self) -> dict:
     """ Create serialized representation of this object, for saving to json. """
     # tuple cannot be used as a key in json;
     #   move each (region,platform) into the values
