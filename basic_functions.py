@@ -1,3 +1,5 @@
+""" Module defining functions used throughout the project. """
+
 
 def debug_print(*args, **kwargs):
   """ Print to console with flush=True. """
@@ -7,9 +9,9 @@ def debug_print(*args, **kwargs):
 
 
 def create_elo_function(
-    K: float = 25, # The elo swing of a fair match
-    diff: float = 400,  # "A player with +`diff` Elo..."
-    xtimes: float = 10, # "... is `xtimes` times more likely to win"
+    K: float = 25,      # The elo swing of a fair match
+    diff: float = 400,  # "A player with +`diff` Elo...
+    xtimes: float = 10, # ... is `xtimes` times as likely to win"
   ):
   """ Create and return a personalized Elo calculation function. """
   def elo_function(p1, p2: float, p1_wins: float) -> dict[str, float]:
@@ -32,4 +34,3 @@ def async_cache(func):
     cache[arg] = result
     return result
   return wrapper
-
