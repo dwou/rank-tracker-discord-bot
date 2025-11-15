@@ -1,11 +1,17 @@
 """ Module defining functions used throughout the project. """
 
+import time
 
-def debug_print(*args, **kwargs):
+
+def debug_print(*args, timestamp=True, **kwargs):
   """ Print to console with flush=True. """
   sep = kwargs.get('sep', ' ')
   end = kwargs.get('end', '\n')
-  print(*args, sep=sep, end=end, flush=True)
+  if timestamp:
+    time_str = time.strftime('[%H:%M:%S]')
+    print(time_str, *args, sep=sep, end=end, flush=True)
+  else:
+    print(*args, sep=sep, end=end, flush=True)
 
 
 def create_elo_function(
