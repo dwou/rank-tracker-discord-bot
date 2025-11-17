@@ -133,7 +133,7 @@ async def on_message(msg: discord.message.Message) -> None:
     return
 
   # Print message
-  debug_print(msg.clean_content)
+  debug_print(f"[{msg.author.display_name}]: {msg.clean_content}")
 
   # Ignore bots' messages
   is_bot: bool = msg.author.bot
