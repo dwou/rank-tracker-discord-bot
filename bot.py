@@ -4,8 +4,11 @@
 #   A customized ping system based on region/platform/Elo (not useful for now)
 #   API rate limiter (but shouldn't be a problem)
 
+# TODO: add punctiation to comments
+# TODO: fix issue of pinging roles not pinging
 # TODO: process match log to re-compute Elo upon startup (including using "undo")
 # TODO: figure out how to update
+# TODO: idenfity bug that sometimes breaks `playerdata`
 
 # Note: "admin" here means that people have the "ban_members" permission
 
@@ -27,7 +30,8 @@ AUTOSAVE = True
 AUTOSAVE_BACKUPS = True # whether to back up previous data while autosaving
 AUTOSAVE_PERIOD = 10*60 # seconds between each autosave
 REPORT_STR = "Report bugs to DWouu." # string to append to certain messages
-HELP_STRING = """-# Note: "lobby" here refers to the object that this Discord bot keeps track of internally.
+# Note: HELP_STRING does not include admin-only commands
+HELP_STRING = """-# Note: "lobby" here refers to the object which this Discord bot keeps track of internally.
 ```
 /ranked <region> <platform> <ping_users={True|False}>
         Open a ranked lobby and optionally ping users in the region/platform.
@@ -58,13 +62,7 @@ HELP_STRING = """-# Note: "lobby" here refers to the object that this Discord bo
         Display the ranked leaderboard for a region/platform.
 
 !ping
-        A simple ping-ping test to check if the bot is online.
-
-/save <backup={True|False}>
-        [admin-only] Manually save the PlayerManager data.
-
-/ban_ranked <user>
-        [admin-only] Ban a user from using this bot.```"""\
+        A simple ping-ping test to check if the bot is online.```"""\
     + f"**{REPORT_STR}**"
 
 
@@ -90,6 +88,7 @@ HELP_STRING = """-# Note: "lobby" here refers to the object that this Discord bo
 "ctx" discord.ext.commands.context.Context  # it's like a Member
   .send                    # send a message; different from channel.send()?
 '''
+# Note: you have to explicitly enable pinging in messages with `allowed_mentions`
 
 
 ###############
@@ -133,9 +132,8 @@ async def on_message(msg: discord.message.Message) -> None:
   if not msg.guild:
     return
 
-  # Print message, substituting only mentions for usernames
-  formatted_msg = await format_message(msg)
-  debug_print(formatted_msg)
+  # Print message
+  debug_print(msg.clean_content)
 
   # Ignore bots' messages
   is_bot: bool = msg.author.bot
@@ -189,9 +187,12 @@ async def playerdata(
     user: discord.User,
   ) -> None:
   """ Display data about a player. """
-  player = get_player(user)
-  response = player.get_summary()
-  await itx.response.send_message(response, ephemeral=True)
+  try:
+    player = get_player(user)
+    response = player.get_summary()
+    await itx.response.send_message(response, ephemeral=True)
+  except Exception as e:
+    debug_print(e.args)
 
 
 @bot.tree.command(name='help', description="Show a description of each command")
@@ -217,8 +218,9 @@ async def ranked(
       and optionally ping users that use the role. """
   if platform == 'Steam':
     platform = 'PC'
-  discord_account = itx.user
-  this_player = get_player(discord_account)
+  user = itx.user
+  this_player = get_player(user)
+
   # Try making a new lobby for this player and proceed if a new lobby is made.
   try:
     _ = await LobbyManager.new_lobby(this_player, region, platform)
@@ -229,28 +231,31 @@ async def ranked(
       ephemeral=True
     )
     return
+
+  # Format and send the "created a lobby" message.
+  footer = f"_-# **{REPORT_STR}**_"
   if ping_users == "Ping users":
     role_name = f"{region}-T7-{platform}"
     role = discord.utils.get(itx.guild.roles, name=role_name)
-    role_str = f"<@&{role.id}> "
+    header = f"{role.mention} :speaking_head::mega: {user.mention}"\
+      " just opened a ranked lobby!\n"
+    body = this_player.get_summary()
+    text = header + '\n' + body + footer
   else:
-    role_str = ''
+    header = f"{user.mention} opened a ranked lobby.\n"
+    text = header + footer
 
-  # If pinging users, make an elaborate message. Otherwise, make a simple one.
-  if ping_users:
-    header = f"{role_str}:speaking_head::mega: <@{discord_account.id}>"\
-      " just opened a ranked lobby and is looking for a set!\n\n"
-    text = header + this_player.get_summary()
-  else:
-    text = f"<@{discord_account.id}> opened a ranked lobby."
-
-  # Send the "created a lobby" message and a reminder to invite people.
   await itx.response.send_message(
-    text
-    + f"\n_-# {REPORT_STR}_",
+    text,
+    allowed_mentions=discord.AllowedMentions(roles=True),
     ephemeral=False
   )
-  await itx.followup.send("Don't forget to `/invite` people.", ephemeral=True)
+
+  # Add a reminder to the sender to invite people.
+  note = "Don't forget to `/invite` people."
+  if ping_users == "Don't ping users":
+    note += " Note that users were not \"pinged\" (notified)."
+  await itx.followup.send(note, ephemeral=True)
 
 
 @bot.tree.command(name='invite', description='Invite another user to a ranked session')
@@ -262,9 +267,9 @@ async def invite(
   try:
     host = itx.user
     host_player = get_player(host)
-    invitee_player = get_player(invited_user)
-    LobbyManager.invite_to_lobby(host_player, invitee_player)
-    text = f"<@{host.id}> invited <@{invited_user.id}>"\
+    invited_player = get_player(invited_user)
+    LobbyManager.invite_to_lobby(host_player, invited_player)
+    text = f"{host.mention} invited {invited_user.mention}"\
       "\n-# use `/join` to join their lobby"
     await itx.response.send_message(text)
   except Exception as e:
@@ -416,20 +421,6 @@ async def ping(ctx: discord.ext.commands.context.Context) -> None:
 ###################
 # Other functions #
 ###################
-
-
-async def format_message(msg: discord.message.Message) -> str:
-  """ Format a message, substituting only mentions for usernames. """
-  content = msg.content
-  for match in re.finditer(r'(<@(\d+)>)', content):
-    user_id = match.group(2)
-    user = await bot_fetch_user(user_id)
-    content = content.replace(
-      match.group(1),
-      '@' + user.display_name
-    )
-  formatted_msg = f"[{msg.author.display_name}]: {content}"
-  return formatted_msg
 
 
 def get_player(user: discord.member.Member) -> Player:
