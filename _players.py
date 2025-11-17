@@ -14,8 +14,8 @@ class PlayerManager():
   """ a singleton class to manage Players, including saving and loading. """
   filename: str = None
   players: dict[str, Player] = {}
-  id_map: dict[str, str] = {} # curr -> prev; no Discord interface yet
-  should_save: bool = False # dirty bit to track changes
+  id_map: dict[str, str] = {} # curr -> prev; TODO: add user-facing interface
+  should_save: bool = False # dirty "bit" to track changes
 
   @classmethod
   def initialize(cls, filename: str = 'data.json'):
@@ -130,8 +130,9 @@ class PlayerManager():
   def remap_ID(cls, curr_id: str, prev_id: str) -> None:
     """ Remap one Discord ID to another (in case they lose their account etc).
         Should be restricted to admin-only. """
-    cls.should_save = True
-    cls.id_map[curr_id] = prev_id
+    if curr_id not in cls.id_map or cls.id_map[curr_id] != prev_id:
+      cls.should_save = True
+      cls.id_map[curr_id] = prev_id
 
   @classmethod
   async def autosave(cls, period: float, backup: bool) -> None:
@@ -165,7 +166,6 @@ class Player():
     """ Fetch and return record. Create one if it doesn't exist. """
     couple = (region, platform)
     if couple not in self.records:
-      PlayerManager.should_save = True
       self.records[couple] = {
         "matches_total": 0,
         "elo": DEFAULT_ELO
@@ -211,5 +211,4 @@ class Player():
       output += "-# * None, they're new!\n"
     if self.banned:
       output += "and they're BANNED\n"
-    output = output.strip()
     return output
