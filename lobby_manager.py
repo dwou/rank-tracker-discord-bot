@@ -3,7 +3,7 @@
 import time
 import asyncio
 import os
-from _players import Player
+from _players import Player, PlayerManager
 from basic_functions import debug_print, create_elo_function
 
 
@@ -140,6 +140,7 @@ class LobbyManager():
     """ Update the W/L/D of both players in the lobby and update their Elos.
         Return a formatted string representing the match results.
         `winner` can be either player in a draw. """
+    PlayerManager.should_save = True
     lobby = cls.find_lobby(winner)
     region = lobby['region']
     platform = lobby['platform']
