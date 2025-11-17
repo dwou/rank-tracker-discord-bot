@@ -1,17 +1,39 @@
 """ Module defining functions used throughout the project. """
 
 import time
+import textwrap
+
+CONSOLE_WIDTH = 100 # for wrapping
 
 
-def debug_print(*args, timestamp=True, **kwargs):
-  """ Print to console with flush=True. """
+def debug_print(*args, **kwargs):
+  """ Print to console with flush=True; Timestamp, justify, and indent string. """
   sep = kwargs.get('sep', ' ')
   end = kwargs.get('end', '\n')
-  if timestamp:
-    time_str = time.strftime('[%H:%M:%S]')
-    print(time_str, *args, sep=sep, end=end, flush=True)
-  else:
-    print(*args, sep=sep, end=end, flush=True)
+  time_str = time.strftime('[%H:%M:%S] ')
+  # Create semifinal string
+  text = time_str + sep.join(map(str, args))
+  # Split lines to preverve line breaks and join after wrapping.
+  lines = text.split('\n')
+  output = '\n'.join([
+    # initial line(s) (pre-'\n')
+    textwrap.fill(
+      lines[0],
+      width=CONSOLE_WIDTH,
+      subsequent_indent=' ' * len(time_str)
+    ),
+    # subsequent lines
+    *[
+      textwrap.fill(
+        line,
+        width=CONSOLE_WIDTH,
+        initial_indent=' ' * len(time_str),
+        subsequent_indent=' ' * len(time_str)
+      )
+      for line in lines[1:]
+    ]
+  ]).strip()
+  print(output, end=end, flush=True)
 
 
 def create_elo_function(
