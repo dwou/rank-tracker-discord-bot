@@ -70,11 +70,11 @@ class PlayerManager():
   def get_player(cls, ID: str) -> Player:
     """ Fetch a player by their ID; Create them if they don't exist;
         Resolve their ID if it's mapped. Error on a circular pointer chain. """
-    checked_IDs = set()
+    checked_ids = set()
     while ID in cls.id_map:
-      if ID in checked_IDs:
+      if ID in checked_ids:
         raise RuntimeError("get_player circular pointer error")
-      checked_IDs.add(ID)
+      checked_ids.add(ID)
       ID = cls.id_map[ID]
     if ID not in cls.players:
       cls.should_save = True
@@ -127,7 +127,7 @@ class PlayerManager():
     save()
 
   @classmethod
-  def remap_ID(cls, curr_id: str, prev_id: str) -> None:
+  def remap_id(cls, curr_id: str, prev_id: str) -> None:
     """ Remap one Discord ID to another (in case they lose their account etc).
         Should be restricted to admin-only. """
     if curr_id not in cls.id_map or cls.id_map[curr_id] != prev_id:
@@ -136,9 +136,8 @@ class PlayerManager():
 
   @classmethod
   async def autosave(cls, period: float, backup: bool) -> None:
-    """ Start the autosaving process. """
-    # Assume autosaving is enabled if this method is called
-    start_time = time.time()
+    """ Start the autosaving process.
+        Assume autosaving is enabled if this method is called. """
     while True:
       await asyncio.sleep(period)
       cls.save_to_file(backup=backup)
