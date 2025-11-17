@@ -3,7 +3,7 @@
 import time
 import asyncio
 import os
-from _players import Player, PlayerManager
+from players import Player, PlayerManager
 from basic_functions import debug_print, create_elo_function
 
 
@@ -13,7 +13,7 @@ class LobbyManager():
   keepalive_duration = 30 * 60 # seconds; initial time to keep a lobby alive for
   refresh_duration = 3 * 60 # seconds; time to keep a lobby alive without activity
   lobbies: dict[int, dict] = {} # lobby ID -> {}
-  # `lobbies`: key identifier(1,2,3,...) -> Dict:
+  # `lobbies`: key identifier(1,2,3,...) -> dict:
   #   "ID": int,
   #   "region":_, "platform":_,
   #   "start_time":_, "last_interaction":_,
@@ -90,10 +90,10 @@ class LobbyManager():
     raise ValueError("Player not in a lobby.")
 
   @classmethod
-  def invite_to_lobby(cls, host: Player, invitee: Player) -> None:
+  def invite_to_lobby(cls, host: Player, guest: Player) -> None:
     """ Mark a lobby as having had invited `invitee`. """
     lobby = cls.find_lobby(host)
-    lobby['invited_players'].add(invitee)
+    lobby['invited_players'].add(guest)
 
   @classmethod
   def join_lobby(cls, host: Player, joiner: Player) -> None:
@@ -114,13 +114,13 @@ class LobbyManager():
     # Check if player is in another lobby
     for lobby2 in cls.lobbies.values():
       if joiner in lobby2['players'] and lobby2 != lobby:
-        raise ValueError("You're already in another lobby (use \"/leave\").")
+        raise ValueError("You're already in another lobby (use `/leave`).")
     # Check if lobby is full
     if len(lobby['players']) > 1:
       raise ValueError("Host lobby is full (wait or make a new one).")
     # Check if player is invited
     if joiner not in lobby['invited_players']:
-      raise PermissionError("You haven't been invited to this lobby (the host has to /invite you).")
+      raise PermissionError("You haven't been invited to this lobby (the host has to `/invite` you).")
     # Add the player and update the lobby
     lobby['players'].add(joiner)
     lobby['records'][joiner] = {'matches_total': 0, 'W': 0, 'L': 0, 'D': 0}
@@ -128,8 +128,12 @@ class LobbyManager():
 
   @classmethod
   def leave_lobby(cls, player: Player) -> None:
-    """ Remove `player` from their lobby. """
-    lobby = cls.find_lobby(player)
+    """ Remove `player` from their lobby.
+        Raise ValueError if the player isn't found. """
+    try:
+      lobby = cls.find_lobby(player)
+    except:
+      raise ValueError("Player not in a lobby.")
     lobby['players'].remove(player)
     del lobby['records'][player]
     cls.update_lobby(lobby)
