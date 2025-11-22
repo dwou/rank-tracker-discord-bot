@@ -4,9 +4,10 @@
 #   A customized ping system based on region/platform/Elo (not useful for now)
 #   API rate limiter (but shouldn't be a problem)
 
-# TODO: process match log to re-compute Elo upon startup (including using "undo")
-# TODO: figure out how to update
+# TODO: test lobby cooldown
 # TODO: idenfity bug that sometimes breaks `playerdata`
+# TODO: figure out how to update
+# TODO: process match log to re-compute Elo upon startup (including using "undo")
 
 # Note: "admin" here means that people have the "ban_members" permission
 
@@ -22,11 +23,18 @@ from dotenv import load_dotenv
 
 from players import PlayerManager, Player
 from lobby_manager import LobbyManager
-from basic_functions import debug_print#, async_cache
+from basic_functions import debug_print
 
-AUTOSAVE = True
+# Players
+AUTOSAVE = True         # whether to autosave
 AUTOSAVE_BACKUPS = True # whether to back up previous data while autosaving
 AUTOSAVE_PERIOD = 10*60 # seconds between each autosave
+
+# Lobbies
+KEEPALIVE_DURATION = 30 * 60  # seconds; initial time to keep a lobby alive for
+REFRESH_DURATION = 3 * 60     # seconds; time to keep a lobby alive without activity
+COOLDOWN_TIME = 30            # minimum time (seconds) between /result reports
+
 REPORT_STR = "Report bugs to DWouu." # string to append to certain messages
 # Note: HELP_STRING does not include admin-only commands
 HELP_STRING = """-# Note: "lobby" here refers to the object which this Discord bot keeps track of internally.
@@ -45,8 +53,8 @@ HELP_STRING = """-# Note: "lobby" here refers to the object which this Discord b
         Leave a lobby.
 
 /result {I won|I lost|Draw|Undo}
-        Report the result of a match (must be in a lobby with the other player).
-        Note: "Undo" has not been implemented yet but will be logged for later.
+        Report the result of a match. You must be in a lobby with another player.
+        Note: "Undo" has not been fully implemented yet but will be logged for later.
 
 --------------------------------------------------------------------------------
 
@@ -101,8 +109,12 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 
 
 async def main():
-  """ Initialize PlayerManager, start autosave, and start the bot. """
+  """ Initialize PlayerManager, set class variables, start autosave,
+      and start the bot. """
   PlayerManager.initialize()
+  LobbyManager.KEEPALIVE_DURATION = KEEPALIVE_DURATION
+  LobbyManager.REFRESH_DURATION = REFRESH_DURATION
+  LobbyManager.COOLDOWN_TIME = COOLDOWN_TIME
   if AUTOSAVE:
     asyncio.create_task(
       PlayerManager.autosave(period=AUTOSAVE_PERIOD, backup=AUTOSAVE_BACKUPS)
@@ -272,7 +284,7 @@ async def invite(
     )
   else:
     body = f"{host.mention} invited {invited_user.mention} to their lobby."
-    footer = "-# use `/join` to join their lobby"
+    footer = "-# Use `/join` to join their lobby"
     await itx.response.send_message(
       body + '\n' + footer,
       allowed_mentions=discord.AllowedMentions(users=True)
@@ -291,7 +303,7 @@ async def join(
   try:
     LobbyManager.join_lobby(host, joiner)
   except Exception as e:
-    await itx.response.send_message(f"ERROR: {e.args}", ephemeral=True)
+    await itx.response.send_message(e.args[0], ephemeral=True)
   else:
     debug_print("Lobby joined successfully.")
     await itx.response.send_message(
@@ -345,20 +357,37 @@ async def result(
     )
     return
 
-  # Determine the winner and report the result.
+  # Determine the winner.
   if match_result == "I won":
     winner = this_player
     loser = opponent
   else:
     winner = opponent
     loser = this_player
+
+  # Handle "Undo"
+  ephemeral=False
   if match_result == 'Undo':
     # Update match log directly, without reporting the match result.
     LobbyManager.update_match_log(lobby['region'], lobby['platform'], winner, loser, undo=True)
     result_text = "Noted undo (bot has to be reloaded for it to take effect)."
   else:
-    result_text = LobbyManager.report_match_result(winner, draw=(match_result=="Draw"))
-  await itx.response.send_message(result_text)
+    # Try to report the result (check if match is on cooldown).
+    try:
+      result_text = LobbyManager.report_match_result(
+        winner,
+        draw=(match_result=="Draw")
+      )
+    except RuntimeError as e:
+      debug_print(e.args)
+      result_text = e.args
+      ephemeral=True
+
+  # Display output.
+  await itx.response.send_message(
+    result_text,
+    ephemeral=ephemeral
+  )
 
 
 @app_commands.default_permissions(ban_members=True)
@@ -413,7 +442,8 @@ async def leaderboard(
       record = player.records[(region,platform)]
       elo = record['elo']
       elo_prefix = '~' if record['matches_total'] < 30 else ' '
-      lines.append(f"{elo_prefix}{int(elo):>4} │ {player.display_name}")
+      score_str = f"{elo_prefix + str(int(elo)):>5}"
+      lines.append(f"{score_str} │ {player.display_name}")
 
     # Print the result.
     header = "``` Elo  │ Player\n"\
