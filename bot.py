@@ -7,9 +7,9 @@
 # TODO: test lobby cooldown
 # TODO: idenfity bug that sometimes breaks `playerdata`
 # TODO: figure out how to update
-# TODO: process match log to re-compute Elo upon startup (including using "undo")
 
 # Note: "admin" here means that people have the "ban_members" permission
+# Note: "Undo" match results must be handled manually by modifying the match log.
 
 from os import getenv
 import re
@@ -232,7 +232,8 @@ async def ranked(
 
   # Try making a new lobby for this player and proceed if a new lobby is made.
   try:
-    _ = await LobbyManager.new_lobby(this_player, region, platform)
+    lobby = await LobbyManager.new_lobby(this_player, region, platform)
+    debug_print(f"Created lobby #{lobby['ID']}")
   except ValueError as e:
     debug_print(e.args)
     await itx.response.send_message(
@@ -365,8 +366,8 @@ async def result(
     winner = opponent
     loser = this_player
 
-  # Handle "Undo"
-  ephemeral=False
+  # Handle "Undo".
+  ephemeral = False
   if match_result == 'Undo':
     # Update match log directly, without reporting the match result.
     LobbyManager.update_match_log(lobby['region'], lobby['platform'], winner, loser, undo=True)
@@ -422,34 +423,38 @@ async def leaderboard(
   """ Display a leaderboard for the region/platform. """
   if platform == 'Steam':
     platform = 'PC'
+  # Fetch players that match this region/platform who aren't banned.
   players = [player for player in PlayerManager.players.values()
               if (region,platform) in player.records
               and not player.banned]
+
+  # Handle regions with no players.
   if not players:
     await itx.response.send_message(
       'Nobody has played in this region/platform.',
       ephemeral=True
     )
-  elif players:
-    # Sort the players by elo, descending.
-    def sort_by_elo(player: Player):
-      return player.records[(region,platform)]['elo']
-    players.sort(key=sort_by_elo, reverse=True)
+    return
 
-    # Format each output line.
-    lines = []
-    for player in players:
-      record = player.records[(region,platform)]
-      elo = record['elo']
-      elo_prefix = '~' if record['matches_total'] < 30 else ' '
-      score_str = f"{elo_prefix + str(int(elo)):>5}"
-      lines.append(f"{score_str} │ {player.display_name}")
+  # Sort the players by elo, descending.
+  players.sort(
+    key=lambda player: player.records[(region,platform)]['elo'],
+    reverse=True
+  )
 
-    # Print the result.
-    header = "``` Elo  │ Player\n"\
-                "──────┼─────────────────\n"
-    output = header + '\n'.join(lines) + "```"
-    await itx.response.send_message(output, ephemeral=True)
+  # Format each output line.
+  lines = []
+  for player in players:
+    record = player.records[(region,platform)]
+    elo_str = str(int(record['elo']))
+    elo_prefix = '~' if record['matches_total'] < 30 else ' '
+    lines.append(f"{elo_prefix + elo_str:>5} │ {player.display_name}")
+
+  # Print the result.
+  header = "``` Elo  │ Player\n"\
+              "──────┼─────────────────\n"
+  output = header + '\n'.join(lines) + "```"
+  await itx.response.send_message(output, ephemeral=True)
 
 
 ##############
@@ -477,8 +482,7 @@ def get_player(user: discord.member.Member) -> Player:
   player = PlayerManager.get_player(user_id)
   # Resolve and save display name.
   if not player.display_name:
-    name = user.global_name if user.global_name else user.display_name
-    player.display_name = name
+    player.display_name = user.global_name if user.global_name else user.display_name
   return player
 
 
