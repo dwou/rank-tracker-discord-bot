@@ -41,7 +41,12 @@ class LobbyManager():
         return
 
   @classmethod
-  async def new_lobby(cls, player: Player, region: str, platform: str) -> dict:
+  async def new_lobby(cls,
+      player: Player,
+      region: str,
+      platform: str,
+      do_not_autoclose: bool=False
+    ) -> dict:
     """ Create lobby if player not already in a lobby; return lobby.
         Raise ValueError if `player` is already in a lobby on this platform.
         Raise PermissionError if `player` is banned. """
@@ -73,10 +78,10 @@ class LobbyManager():
           "invited_players": {player,},
         }
         cls.lobbies[lobby_id] = lobby
-        debug_print(f'Created lobby #{lobby_id}')
 
         # Spawn a task to automatically close the lobby.
-        asyncio.create_task(cls.__lobby_autocloser(lobby))
+        if not do_not_autoclose:
+          asyncio.create_task(cls.__lobby_autocloser(lobby))
         return lobby
 
   @classmethod
@@ -151,7 +156,11 @@ class LobbyManager():
     # Do not manually close an empty lobby - let close automatically
 
   @classmethod
-  def report_match_result(cls, winner: Player, draw: bool = False) -> str:
+  def report_match_result(cls,
+      winner: Player,
+      draw: bool = False,
+      log_result: bool = True
+    ) -> str:
     """ Update the W/L/D of both players in the lobby and update their Elos.
         Return a formatted string representing the match results.
         `winner` can be either player in a draw.
@@ -211,7 +220,8 @@ class LobbyManager():
     p2.records[(region, platform)]['matches_total'] += 1
 
     # Log the result.
-    cls.update_match_log(region, platform, p1, p2, draw=draw)
+    if log_result:
+      cls.update_match_log(region, platform, p1, p2, draw=draw)
 
     # Format the return the results string.
     result_text = \
