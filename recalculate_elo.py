@@ -44,6 +44,10 @@ async def main():
     host = winner = PlayerManager.get_player(match['winner_id'])
     guest = PlayerManager.get_player(match['loser_id'])
 
+    # Skip matches where either player is banned.
+    if host.banned or guest.banned:
+      continue
+
     # Set up lobby.
     lobby = await LobbyManager.new_lobby(
       host,
