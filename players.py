@@ -11,7 +11,7 @@ DEFAULT_ELO = 1000.0 # only used for new Players
 
 
 class PlayerManager():
-  """ a singleton class to manage Players, including saving and loading. """
+  """ A singleton class to manage Players, including saving and loading. """
   filename: str = None
   players: dict[str, Player] = {}
   id_map: dict[str, str] = {} # curr -> prev; TODO: add user-facing interface
@@ -97,7 +97,9 @@ class PlayerManager():
 
   @classmethod
   def save_to_file(cls, backup=False) -> None:
-    """ Save player data to a file, optionally backing up the old file. """
+    """ Save player data to a file, optionally backing up the old file.
+        Note: 'Elo' is just for reference, and should be re-calculated
+        during bot downtime using `recalculate_elo.py`. """
     this_dir = os.path.dirname(os.path.abspath(__file__))
     file_path = os.path.join(this_dir, cls.filename)
     unix_time = int(time.time())
@@ -199,15 +201,14 @@ class Player():
 
   def get_summary(self) -> None:
     """ Return a string summary of this Player. """
-    output = f"-# {self.display_name} has the following records:\n"
+    output = f"**{self.display_name}** has the following records:\n"
     any_found = False
     for (region,platform),record in self.records.items():
       if record['matches_total']:
-        # TODO: sort
         output += (f"* {region}-{platform}: **{int(record['elo'])}** Elo, {record['matches_total']} matches\n")
         any_found = True
     if not any_found:
-      output += "-# * None, they're new!\n"
+      output += "* None, they're new!\n"
     if self.banned:
-      output += "and they're BANNED\n"
+      output += "...and they're **BANNED**\n"
     return output
