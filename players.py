@@ -27,7 +27,7 @@ class PlayerManager():
   def _load_data(cls) -> None:
     """ Load players,id_map from a file, if it exists.
         Assume all input data is valid. """
-    # Load the file if it exists
+    # Load the file if it exists.
     this_dir = os.path.dirname(os.path.abspath(__file__))
     file_path = os.path.join(this_dir, cls.filename)
     if not os.path.isfile(file_path):
@@ -37,27 +37,28 @@ class PlayerManager():
     with open(file_path, "r", encoding='u8') as f:
       json_data = json.load(f)
 
-    # Unpack the players
+    # Unpack the players.
     for p in json_data['players']:
-      debug_print('Reading player:', p)
-      ID = p['ID']
-      # Deserialize the records
+      debug_print(
+        f"Reading player  {p['ID']}  \"{p['display_name']}\"",
+        f"{' - BANNED' if p['banned'] else ''}"
+      )
+      # Deserialize the records.
       records = {}
       for r in p['records']:
-        # Move the region and platform from values to keys
+        # Move the region and platform from values to keys.
         region = r['region']
         platform = r['platform']
         del r['region'], r['platform']
         records[(region, platform)] = r
-      del p['records'] # use the created `records`, not the loaded one
+      del p['records'] # Use the created `records`, not the loaded one.
+      ID = p['ID']
       cls.players[ID] = Player(**p, records=records)
 
-    # Unpack the id_map
-    for im in json_data['id_map']:
-      debug_print('Reading (IDs):', im)
-      ref_id = im['ref_id']
-      orig_id = im['orig_id']
-      debug_print(f'{ref_id} -> {orig_id}')
+    # Unpack the id_map.
+    # TODO: check this
+    for ref_id,orig_id in json_data['id_map']:
+      debug_print(f'Reading {ref_id} -> {orig_id}')
       cls.id_map[ref_id] = orig_id
 
   @classmethod
@@ -83,7 +84,7 @@ class PlayerManager():
     return cls.players[ID]
 
   @classmethod
-  def _serialize(cls) -> dict:
+  def _serialize(cls, include_blank_players=False) -> dict:
     """ Create serialized representation of this object, for json. """
     epoch_time = int(time.time())
     readable_time = time.strftime("%Y-%m-%d at %H:%M:%S %Z")
@@ -91,13 +92,19 @@ class PlayerManager():
       "timestamp": [epoch_time, readable_time],
       "id_map": cls.id_map,
       "default_elo": DEFAULT_ELO,
-      "players": [player.serialize() for player in cls.players.values()],
+      "players": [
+        player.serialize()
+        for player in cls.players.values()
+        if include_blank_players
+           or any(1 for record in player.records.values() if record['matches_total'])
+      ],
     }
     return data
 
   @classmethod
-  def save_to_file(cls, backup=False) -> None:
+  def save_to_file(cls, backup=False, force_save=False) -> None:
     """ Save player data to a file, optionally backing up the old file.
+        Do not save players with no matches played.
         Note: 'Elo' is just for reference, and should be re-calculated
         during bot downtime using `recalculate_elo.py`. """
     this_dir = os.path.dirname(os.path.abspath(__file__))
@@ -108,7 +115,7 @@ class PlayerManager():
     data = cls._serialize()
     def save(msg: str = "Saving..."):
       """ Save `data` to `file_path`. Check and update `cls.should_save`. """
-      if cls.should_save:
+      if cls.should_save or force_save:
         cls.should_save = False
         debug_print(msg)
         with open(file_path, 'w', encoding='u8') as f:
@@ -141,6 +148,7 @@ class PlayerManager():
     """ Start the autosaving process.
         Assume autosaving is enabled if this method is called. """
     while True:
+      # Note that the save time will "drift" over time
       await asyncio.sleep(period)
       cls.save_to_file(backup=backup)
 
