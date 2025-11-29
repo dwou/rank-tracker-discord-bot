@@ -15,6 +15,7 @@ from os import getenv
 import re
 from typing import Literal
 import asyncio
+import time
 
 import discord
 from discord.ext import commands
@@ -54,7 +55,6 @@ HELP_STRING = """-# Note: "lobby" here refers to the object which this Discord b
 
 /result {I won|I lost|Draw|Undo}
         Report the result of a match. You must be in a lobby with another player.
-        Note: "Undo" has not been fully implemented yet but will be logged for later.
 
 --------------------------------------------------------------------------------
 
@@ -186,7 +186,7 @@ async def save(
   ) -> None:
   """ Manually save player data. """
   debug_print('Manually saving PlayerManager...')
-  PlayerManager.save_to_file(backup=backup)
+  PlayerManager.save_to_file(backup=backup, force_save=True)
   await itx.response.send_message('Saved.', ephemeral=True)
 
 
@@ -202,6 +202,7 @@ async def playerdata(
     await itx.response.send_message(summary, ephemeral=True)
   except Exception as e:
     debug_print(f"playerdata ERROR: {e.args}")
+    await itx.response.send_message('ERROR: {e.args}', ephemeral=True)
 
 
 @bot.tree.command(name='help', description="Show a description of each command")
@@ -225,47 +226,65 @@ async def ranked(
   ) -> None:
   """ Open a ranked lobby given region and platform,
       and optionally ping users that use the role. """
-  if platform == 'Steam':
-    platform = 'PC'
-  user = itx.user
-  this_player = get_player(user)
+  try:
+    if platform == 'Steam':
+      platform = 'PC'
+    user = itx.user
+    this_player = get_player(user)
+  except Exception as e:
+    debug_print('[1]:', e.args)
+    await itx.response.send_message('ERROR: {e.args}', ephemeral=True)
+    return
 
   # Try making a new lobby for this player and proceed if a new lobby is made.
   try:
     lobby = await LobbyManager.new_lobby(this_player, region, platform)
     debug_print(f"Created lobby #{lobby['ID']}")
   except ValueError as e:
-    debug_print(e.args)
+    debug_print('[2]:', e.args)
     await itx.response.send_message(
       f"ERROR: {e.args}",
       ephemeral=True
     )
     return
+  except Exception as e:
+    debug_print('[3]:', e.args)
+    await itx.response.send_message('ERROR: {e.args}', ephemeral=True)
+    return
 
   # Format and send the "created a lobby" message.
-  footer = f"_-# **{REPORT_STR}**_"
-  if ping_users == "Ping users":
-    role_name = f"{region}-T7-{platform}"
-    role = discord.utils.get(itx.guild.roles, name=role_name)
-    header = f"{role.mention} :speaking_head::mega: {user.mention}"\
-      " just opened a ranked lobby!\n"
-    body = this_player.get_summary()
-    text = header + '\n' + body + footer
-  else:
-    header = f"{user.mention} opened a ranked lobby.\n"
-    text = header + footer
+  try:
+    footer = f"_-# **{REPORT_STR}**_"
+    if ping_users == "Ping users":
+      role_name = f"{region}-T7-{platform}"
+      role = discord.utils.get(itx.guild.roles, name=role_name)
+      header = f"{role.mention} :speaking_head::mega: {user.mention}"\
+        " just opened a ranked lobby!\n"
+      body = this_player.get_summary()
+      text = header + '\n' + body + footer
+    else:
+      header = f"{user.mention} opened a ranked lobby.\n"
+      text = header + footer
+  except Exception as e:
+    debug_print('[4]:', e.args)
+    await itx.response.send_message('ERROR: {e.args}', ephemeral=True)
+    return
 
-  await itx.response.send_message(
-    text,
-    allowed_mentions=discord.AllowedMentions(roles=True)
-  )
+  try:
+    await itx.response.send_message(
+      text,
+      allowed_mentions=discord.AllowedMentions(roles=True)
+    )
 
-  # Add a reminder to the sender to invite people.
-  note = "Don't forget to `/invite` people."
-  if ping_users == "Don't ping users":
-    note += " Note that users were not \"pinged\" (notified)."
-  await itx.followup.send(note, ephemeral=True)
-
+    # Add a reminder to the sender to invite people.
+    note = "Don't forget to `/invite` people."
+    if ping_users == "Don't ping users":
+      note += " Note that users were not \"pinged\" (notified)."
+    await itx.followup.send(note, ephemeral=True)
+  except Exception as e:
+    debug_print('[5]:', e.args)
+    await itx.response.send_message('ERROR: {e.args}', ephemeral=True)
+    return
 
 @bot.tree.command(name='invite', description='Invite another user to a ranked session')
 async def invite(
@@ -304,6 +323,7 @@ async def join(
   try:
     LobbyManager.join_lobby(host, joiner)
   except Exception as e:
+    debug_print(f"join ERROR: {e.args}")
     await itx.response.send_message(e.args[0], ephemeral=True)
   else:
     debug_print("Lobby joined successfully.")
@@ -319,7 +339,8 @@ async def leave(itx: discord.Interaction) -> None:
   player = get_player(itx.user)
   try:
     LobbyManager.leave_lobby(player)
-  except ValueError:
+  except ValueError as e:
+    debug_print(f"leave ERROR: {e.args}")
     await itx.response.send_message(
       "You aren't in a lobby.",
       ephemeral=True
@@ -342,7 +363,8 @@ async def result(
   # Fetch the player's lobby.
   try:
     lobby = LobbyManager.find_lobby(this_player)
-  except ValueError:
+  except ValueError as e:
+    debug_print(f"result ERROR: {e.args}")
     await itx.response.send_message(
       "You aren't in a lobby.",
       ephemeral=True
@@ -371,6 +393,9 @@ async def result(
   if match_result == 'Undo':
     # Update match log directly, without reporting the match result.
     LobbyManager.update_match_log(lobby['region'], lobby['platform'], winner, loser, undo=True)
+    # Undo the cooldown so the result can be reported again.
+    now = time.time()
+    lobby['last_interaction'] = now - LobbyManager.COOLDOWN_DURATION
     result_text = "Noted undo (bot has to be reloaded for it to take effect)."
   else:
     # Try to report the result (check if match is on cooldown).
@@ -380,7 +405,7 @@ async def result(
         draw=(match_result=="Draw")
       )
     except RuntimeError as e:
-      debug_print(e.args)
+      debug_print("result ERROR 2: {e.args}")
       result_text = e.args
       ephemeral=True
 
@@ -489,16 +514,23 @@ def get_player(user: discord.member.Member) -> Player:
 async def handle_autoreply(msg: discord.message.Message) -> None:
   """ Apply all automatic replies to a message. """
   text = msg.content
-  # Match beggars.
-  if re.search(r'(final|last).{0,20}achiev', text)\
-      or re.search(r'help.{0,40}achiev', text)\
-      or ('tourn' in text and 'achiev' in text):
+  # Match achievement beggars.
+  # Skip users who mention "ranked" and not "tournament".
+  if (re.search(r'(final|last).{0,20}(achiev.?m|trophy)', text)
+       or re.search(r'help.{0,40}(achiev.?m|trophy)', text)
+       or ('tourn' in text and re.search(r'(achiev.?m|trophy)', text))
+      ) and not ('ranked' in text and 'tourn' not in text):
+    debug_print(f"[{msg.author.display_name}]: {msg.clean_content}")
+    debug_print('^ Partial beggar match.')
     # Skip users with least one match on their record.
     player = get_player(msg.author)
-    if not any(record["matches_total"] > 0
-               for record in player.records.values()):
+    games_played = sum(record["matches_total"] for record in player.records.values())
+    if games_played == 0:
+      debug_print('^ Full beggar match - responded.')
       await msg.channel.send(
-        f"You probably won't find anyone to help with getting the tournament achievement here {msg.author.mention}"
+        "You probably won't find anyone to help with getting the"\
+        f" tournament achievement here {msg.author.mention}",
+        allowed_mentions=discord.AllowedMentions(users=True)
       )
 
 
